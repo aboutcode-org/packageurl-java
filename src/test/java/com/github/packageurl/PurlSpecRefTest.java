@@ -25,38 +25,33 @@
 
 package com.github.packageurl;
 
+import java.io.IOException;
+import java.io.InputStream;
 import java.net.URL;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-
-import java.io.IOException;
-import java.io.InputStream;
-import java.nio.file.Files;
-import java.nio.file.Paths;
-import java.nio.file.Path;
-import java.util.Collections;
-import java.util.List;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
-import com.fasterxml.jackson.databind.ObjectMapper;
-
-import com.fasterxml.jackson.databind.JsonNode;
-
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.core.JsonParser;
-import com.fasterxml.jackson.core.ObjectCodec;
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
-
-import com.fasterxml.jackson.databind.JsonDeserializer;
+import com.fasterxml.jackson.core.ObjectCodec;
 import com.fasterxml.jackson.databind.DeserializationContext;
-
-import java.util.Map;
+import com.fasterxml.jackson.databind.JsonDeserializer;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 
 public class PurlSpecRefTest {
 
@@ -143,14 +138,13 @@ public class PurlSpecRefTest {
     void runRoundtripTest(TestCase testCase) throws Exception {
         String result;
         try {
-            result = new PackageURL(testCase.input.purl).canonicalize().toString();
+            result = new PackageURL(testCase.input.purl).canonicalize();
         } catch (Exception e) {
             assertTrue(testCase.expected_failure, "Unexpected failure: " + e.getMessage());
             return;
         }
         assertFalse(testCase.expected_failure, "Expected failure but parsing succeeded");
-
-        assertEquals(result, testCase.expected_output.purl);
+        assertEquals(testCase.expected_output.purl, result);
 
     }
 
@@ -159,14 +153,14 @@ public class PurlSpecRefTest {
         String result;
         try {
             result = new PackageURL(input.type, input.namespace, input.name, input.version, input.qualifiers,
-                    input.subpath).canonicalize().toString();
+                    input.subpath).canonicalize();
         } catch (Exception e) {
             assertTrue(testCase.expected_failure, "Unexpected failure: " + e.getMessage());
             return;
         }
 
         assertFalse(testCase.expected_failure, "Expected failure but build succeeded");
-        assertEquals(result, testCase.expected_output.purl);
+        assertEquals(testCase.expected_output.purl, result);
     }
 
     void runParseTest(TestCase testCase) throws Exception {
