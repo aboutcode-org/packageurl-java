@@ -145,13 +145,7 @@ public final class PackageURL implements Serializable {
             } else {
                 this.subpath = null;
             }
-            // qualifiers are optional - check for existence
-            final String rawQuery = uri.getRawQuery();
-            if (rawQuery != null && !rawQuery.isEmpty()) {
-                this.qualifiers = parseQualifiers(rawQuery);
-            } else {
-                this.qualifiers = null;
-            }
+
             // this is the rest of the purl that needs to be parsed
             String remainder = uri.getRawPath();
             // trim trailing '/'
@@ -168,6 +162,14 @@ public final class PackageURL implements Serializable {
                 throw new MalformedPackageURLException("Invalid purl: does not contain both a type and name");
             }
             this.type = StringUtil.toLowerCase(validateType(remainder.substring(start, index)));
+
+            // qualifiers are optional - check for existence
+            final String rawQuery = uri.getRawQuery();
+            if (rawQuery != null && !rawQuery.isEmpty()) {
+                this.qualifiers = parseQualifiers(this.type, rawQuery);
+            } else {
+                this.qualifiers = null;
+            }
 
             start = index + 1;
 
@@ -231,7 +233,7 @@ public final class PackageURL implements Serializable {
             throws MalformedPackageURLException {
         this.type = StringUtil.toLowerCase(validateType(requireNonNull(type, "type")));
         this.namespace = validateNamespace(this.type, namespace);
-        this.qualifiers = parseQualifiers(qualifiers);
+        this.qualifiers = parseQualifiers(this.type, qualifiers);
         this.name = validateName(this.type, requireNonNull(name, "name"), this.qualifiers);
         this.version = validateVersion(this.type, version);
         this.subpath = validateSubpath(subpath);
@@ -456,7 +458,7 @@ public final class PackageURL implements Serializable {
         }
     }
 
-    private static @Nullable Map<String, String> validateQualifiers(final @Nullable Map<String, String> values)
+    private static @Nullable Map<String, String> validateQualifiers(final String type, final @Nullable Map<String, String> values)
             throws MalformedPackageURLException {
         if (values == null || values.isEmpty()) {
             return null;
@@ -467,6 +469,22 @@ public final class PackageURL implements Serializable {
             validateKey(key);
             validateValue(key, entry.getValue());
         }
+
+        switch (type) {
+            case StandardTypes.BAZEL:
+                String defaultRegistry = "https://bcr.bazel.build";
+                String repoURL = values.get("repository_url");
+                String normalized = repoURL.toLowerCase();
+                if (normalized.endsWith("/")) {
+                    normalized = normalized.substring(0, normalized.length() - 1);
+                }
+
+                if (normalized.equals(defaultRegistry)){
+                    values.remove("repository_url");
+                }
+                break;
+        }
+
         return values;
     }
 
@@ -593,7 +611,7 @@ public final class PackageURL implements Serializable {
         }
     }
 
-    private static @Nullable Map<String, String> parseQualifiers(final @Nullable Map<String, String> qualifiers)
+    private static @Nullable Map<String, String> parseQualifiers(final String type, final @Nullable Map<String, String> qualifiers)
             throws MalformedPackageURLException {
         if (qualifiers == null || qualifiers.isEmpty()) {
             return null;
@@ -606,14 +624,14 @@ public final class PackageURL implements Serializable {
                             TreeMap::new,
                             (map, value) -> map.put(StringUtil.toLowerCase(value.getKey()), value.getValue()),
                             TreeMap::putAll);
-            return validateQualifiers(results);
+            return validateQualifiers(type, results);
         } catch (ValidationException ex) {
             throw new MalformedPackageURLException(ex.getMessage());
         }
     }
 
     @SuppressWarnings("StringSplitter") // reason: surprising behavior is okay in this case
-    private static @Nullable Map<String, String> parseQualifiers(final String encodedString)
+    private static @Nullable Map<String, String> parseQualifiers(final String type, final String encodedString)
             throws MalformedPackageURLException {
         try {
             final TreeMap<String, String> results = Arrays.stream(encodedString.split("&"))
@@ -631,7 +649,7 @@ public final class PackageURL implements Serializable {
                                 }
                             },
                             TreeMap::putAll);
-            return validateQualifiers(results);
+            return validateQualifiers(type, results);
         } catch (ValidationException e) {
             throw new MalformedPackageURLException(e);
         }
@@ -746,6 +764,12 @@ public final class PackageURL implements Serializable {
          * @since 2.0.0
          */
         public static final String APK = "apk";
+        /**
+         * Bazel-based packages.
+         *
+         * @since 2.0.0
+         */
+        public static final String BAZEL = "bazel";
         /**
          * Bitbucket-based packages.
          */
