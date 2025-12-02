@@ -183,10 +183,10 @@ public final class PackageURL implements Serializable {
             // The 'remainder' should now consist of an optional namespace and the name
             index = remainder.lastIndexOf('/');
             if (index <= start) {
-                this.name = validateName(this.type, StringUtil.percentDecode(remainder.substring(start)));
+                this.name = validateName(this.type, StringUtil.percentDecode(remainder.substring(start)), this.qualifiers);
                 this.namespace = null;
             } else {
-                this.name = validateName(this.type, StringUtil.percentDecode(remainder.substring(index + 1)));
+                this.name = validateName(this.type, StringUtil.percentDecode(remainder.substring(index + 1)), this.qualifiers);
                 remainder = remainder.substring(0, index);
                 this.namespace = validateNamespace(this.type, parsePath(remainder.substring(start), false));
             }
@@ -231,9 +231,9 @@ public final class PackageURL implements Serializable {
             throws MalformedPackageURLException {
         this.type = StringUtil.toLowerCase(validateType(requireNonNull(type, "type")));
         this.namespace = validateNamespace(this.type, namespace);
-        this.name = validateName(this.type, requireNonNull(name, "name"));
-        this.version = validateVersion(this.type, version);
         this.qualifiers = parseQualifiers(qualifiers);
+        this.name = validateName(this.type, requireNonNull(name, "name"), this.qualifiers);
+        this.version = validateVersion(this.type, version);
         this.subpath = validateSubpath(subpath);
         verifyTypeConstraints(this.type, this.namespace, this.name);
     }
@@ -394,7 +394,7 @@ public final class PackageURL implements Serializable {
         return retVal;
     }
 
-    private static String validateName(final String type, final String value) throws MalformedPackageURLException {
+    private static String validateName(final String type, final String value, final Map<String,String> qualifiers) throws MalformedPackageURLException {
         if (value.isEmpty()) {
             throw new MalformedPackageURLException("The PackageURL name specified is invalid");
         }
@@ -412,6 +412,9 @@ public final class PackageURL implements Serializable {
             case StandardTypes.OCI:
                 temp = StringUtil.toLowerCase(value);
                 break;
+            case StandardTypes.MLFLOW:
+                temp = validateMlflowName(value, qualifiers);
+                break;
             case StandardTypes.PUB:
                 temp = StringUtil.toLowerCase(value).replaceAll("[^a-z0-9_]", "_");
                 break;
@@ -423,6 +426,19 @@ public final class PackageURL implements Serializable {
                 break;
         }
         return temp;
+    }
+
+    /*
+    MLflow names are case-sensitive for Azure ML and must be kept as-is,
+    for Databricks it is case insensitive and must be lowercased.
+    */
+    private static String validateMlflowName(final String name, final Map<String,String> qualifiers){
+
+        String value = qualifiers.get("repository_url");
+        if (value != null && value.toLowerCase().contains("databricks")) {
+            return StringUtil.toLowerCase(name);
+        }
+        return  name;
     }
 
     private static @Nullable String validateVersion(final String type, final @Nullable String value) {
