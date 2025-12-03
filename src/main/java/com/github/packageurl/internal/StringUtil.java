@@ -22,10 +22,11 @@
 package com.github.packageurl.internal;
 
 import static java.lang.Byte.toUnsignedInt;
+import java.nio.charset.StandardCharsets;
+
+import org.jspecify.annotations.NonNull;
 
 import com.github.packageurl.ValidationException;
-import java.nio.charset.StandardCharsets;
-import org.jspecify.annotations.NonNull;
 
 /**
  * String utility for validation and encoding.
@@ -52,6 +53,13 @@ public final class StringUtil {
         UNRESERVED_CHARS['.'] = true;
         UNRESERVED_CHARS['_'] = true;
         UNRESERVED_CHARS['~'] = true;
+
+        /*
+        According to purl-spec https://github.com/package-url/purl-spec/blob/0c3bc118ac5c001e067ba42fba8501405514f1a9/docs/standard/characters-and-encoding.md
+        > The following characters must not be percent-encoded:
+        > - the colon ':', whether used as a Separator Character or otherwise 
+         */
+        UNRESERVED_CHARS[':'] = true;
     }
 
     private StringUtil() {

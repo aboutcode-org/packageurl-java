@@ -145,13 +145,7 @@ public final class PackageURL implements Serializable {
             } else {
                 this.subpath = null;
             }
-            // qualifiers are optional - check for existence
-            final String rawQuery = uri.getRawQuery();
-            if (rawQuery != null && !rawQuery.isEmpty()) {
-                this.qualifiers = parseQualifiers(rawQuery);
-            } else {
-                this.qualifiers = null;
-            }
+
             // this is the rest of the purl that needs to be parsed
             String remainder = uri.getRawPath();
             // trim trailing '/'
@@ -169,6 +163,14 @@ public final class PackageURL implements Serializable {
             }
             this.type = StringUtil.toLowerCase(validateType(remainder.substring(start, index)));
 
+            // qualifiers are optional - check for existence
+            final String rawQuery = uri.getRawQuery();
+            if (rawQuery != null && !rawQuery.isEmpty()) {
+                this.qualifiers = parseQualifiers(this.type, rawQuery);
+            } else {
+                this.qualifiers = null;
+            }
+
             start = index + 1;
 
             // version is optional - check for existence
@@ -183,10 +185,10 @@ public final class PackageURL implements Serializable {
             // The 'remainder' should now consist of an optional namespace and the name
             index = remainder.lastIndexOf('/');
             if (index <= start) {
-                this.name = validateName(this.type, StringUtil.percentDecode(remainder.substring(start)));
+                this.name = validateName(this.type, StringUtil.percentDecode(remainder.substring(start)), this.qualifiers);
                 this.namespace = null;
             } else {
-                this.name = validateName(this.type, StringUtil.percentDecode(remainder.substring(index + 1)));
+                this.name = validateName(this.type, StringUtil.percentDecode(remainder.substring(index + 1)), this.qualifiers);
                 remainder = remainder.substring(0, index);
                 this.namespace = validateNamespace(this.type, parsePath(remainder.substring(start), false));
             }
@@ -231,9 +233,9 @@ public final class PackageURL implements Serializable {
             throws MalformedPackageURLException {
         this.type = StringUtil.toLowerCase(validateType(requireNonNull(type, "type")));
         this.namespace = validateNamespace(this.type, namespace);
-        this.name = validateName(this.type, requireNonNull(name, "name"));
+        this.qualifiers = parseQualifiers(this.type, qualifiers);
+        this.name = validateName(this.type, requireNonNull(name, "name"), this.qualifiers);
         this.version = validateVersion(this.type, version);
-        this.qualifiers = parseQualifiers(qualifiers);
         this.subpath = validateSubpath(subpath);
         verifyTypeConstraints(this.type, this.namespace, this.name);
     }
@@ -394,7 +396,7 @@ public final class PackageURL implements Serializable {
         return retVal;
     }
 
-    private static String validateName(final String type, final String value) throws MalformedPackageURLException {
+    private static String validateName(final String type, final String value, final Map<String,String> qualifiers) throws MalformedPackageURLException {
         if (value.isEmpty()) {
             throw new MalformedPackageURLException("The PackageURL name specified is invalid");
         }
@@ -412,6 +414,9 @@ public final class PackageURL implements Serializable {
             case StandardTypes.OCI:
                 temp = StringUtil.toLowerCase(value);
                 break;
+            case StandardTypes.MLFLOW:
+                temp = validateMlflowName(value, qualifiers);
+                break;
             case StandardTypes.PUB:
                 temp = StringUtil.toLowerCase(value).replaceAll("[^a-z0-9_]", "_");
                 break;
@@ -423,6 +428,19 @@ public final class PackageURL implements Serializable {
                 break;
         }
         return temp;
+    }
+
+    /*
+    MLflow names are case-sensitive for Azure ML and must be kept as-is,
+    for Databricks it is case insensitive and must be lowercased.
+    */
+    private static String validateMlflowName(final String name, final Map<String,String> qualifiers){
+
+        String value = qualifiers.get("repository_url");
+        if (value != null && value.toLowerCase().contains("databricks")) {
+            return StringUtil.toLowerCase(name);
+        }
+        return  name;
     }
 
     private static @Nullable String validateVersion(final String type, final @Nullable String value) {
@@ -440,7 +458,7 @@ public final class PackageURL implements Serializable {
         }
     }
 
-    private static @Nullable Map<String, String> validateQualifiers(final @Nullable Map<String, String> values)
+    private static @Nullable Map<String, String> validateQualifiers(final String type, final @Nullable Map<String, String> values)
             throws MalformedPackageURLException {
         if (values == null || values.isEmpty()) {
             return null;
@@ -451,6 +469,22 @@ public final class PackageURL implements Serializable {
             validateKey(key);
             validateValue(key, entry.getValue());
         }
+
+        switch (type) {
+            case StandardTypes.BAZEL:
+                String defaultRegistry = "https://bcr.bazel.build";
+                String repoURL = values.get("repository_url");
+                String normalized = repoURL.toLowerCase();
+                if (normalized.endsWith("/")) {
+                    normalized = normalized.substring(0, normalized.length() - 1);
+                }
+
+                if (normalized.equals(defaultRegistry)){
+                    values.remove("repository_url");
+                }
+                break;
+        }
+
         return values;
     }
 
@@ -577,7 +611,7 @@ public final class PackageURL implements Serializable {
         }
     }
 
-    private static @Nullable Map<String, String> parseQualifiers(final @Nullable Map<String, String> qualifiers)
+    private static @Nullable Map<String, String> parseQualifiers(final String type, final @Nullable Map<String, String> qualifiers)
             throws MalformedPackageURLException {
         if (qualifiers == null || qualifiers.isEmpty()) {
             return null;
@@ -590,14 +624,14 @@ public final class PackageURL implements Serializable {
                             TreeMap::new,
                             (map, value) -> map.put(StringUtil.toLowerCase(value.getKey()), value.getValue()),
                             TreeMap::putAll);
-            return validateQualifiers(results);
+            return validateQualifiers(type, results);
         } catch (ValidationException ex) {
             throw new MalformedPackageURLException(ex.getMessage());
         }
     }
 
     @SuppressWarnings("StringSplitter") // reason: surprising behavior is okay in this case
-    private static @Nullable Map<String, String> parseQualifiers(final String encodedString)
+    private static @Nullable Map<String, String> parseQualifiers(final String type, final String encodedString)
             throws MalformedPackageURLException {
         try {
             final TreeMap<String, String> results = Arrays.stream(encodedString.split("&"))
@@ -615,7 +649,7 @@ public final class PackageURL implements Serializable {
                                 }
                             },
                             TreeMap::putAll);
-            return validateQualifiers(results);
+            return validateQualifiers(type, results);
         } catch (ValidationException e) {
             throw new MalformedPackageURLException(e);
         }
@@ -730,6 +764,12 @@ public final class PackageURL implements Serializable {
          * @since 2.0.0
          */
         public static final String APK = "apk";
+        /**
+         * Bazel-based packages.
+         *
+         * @since 2.0.0
+         */
+        public static final String BAZEL = "bazel";
         /**
          * Bitbucket-based packages.
          */
